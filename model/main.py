@@ -4,7 +4,7 @@ import torch
 import torch.nn.functional as F
 import time
 
-from model import GPT, GPTConfig
+from model import GPT # GPTConfig
 
 
 if __name__ == "__main__":
@@ -23,8 +23,6 @@ if __name__ == "__main__":
 
     num_return_sequences = 5
     max_sequence_length = 30
-
-
 
     # prefix token init
     enc = tiktoken.get_encoding("gpt2")
