@@ -22,23 +22,34 @@ if __name__ == "__main__":
     #     text = f.read()
     # data = text[:1000]
     # tokens = enc.encode(data)
-    B, T = 4, 32
+    B, T = 8, 512
     # buf = torch.Tensor(tokens[:B * T + 1]).to(device).long()
     # x = buf[:-1].view(B, T)
     # y = buf[1:].view(B, T)
 
     model = GPT(GPTConfig())
     model.to(device)
+
+    # compilation does not currently work with mps backend
+    if device == "cuda":
+        model = torch.compile(model)
+
     # logits, loss = model(x, y)
     # print(loss)
     trainLoader = DataLoader(B, T, device=device)
+
+    torch.set_float32_matmul_precision('high')
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
     epochs = 50
     for i in range(epochs):
         x, y = next(trainLoader)
+        x, y = x.to(device), y.to(device)
         optimizer.zero_grad()
+        # lower precision for higher perfomance in nvidia ampere architecture
+        # while torch.autocast(device_type=device, dtype=torch.bfloat16):
         logits, loss = model(x, y)
+
         loss.backward()
         optimizer.step()
         print(f"Epoch {i}: loss = {loss.item()}")

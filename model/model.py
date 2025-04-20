@@ -26,13 +26,6 @@ class MultiHeadAttention(nn.Module):
         self.c_proj = nn.Linear(config.n_embd, config.n_embd)
         self.c_proj.SCALE_INIT = 1
 
-        self.register_buffer(
-            "tril",
-            torch.tril(torch.ones(config.block_size, config.block_size)).view(
-                1, 1, config.block_size, config.block_size
-            ),
-        )
-
         self.n_head = config.n_head
         self.n_embd = config.n_embd
 
@@ -50,19 +43,8 @@ class MultiHeadAttention(nn.Module):
         K = K.view(B, T, self.n_head, hs).transpose(1, 2)
         V = V.view(B, T, self.n_head, hs).transpose(1, 2)
 
-        # (B, n_head, T, hs) @ (B, n_head, hs, T) -> (B, n_head, T, T)
-        W = Q @ K.transpose(-2, -1)
-        W /= math.sqrt(hs)
-
-        # apply causal mask (remove upper-triangle elements)
-        W = W.masked_fill(self.tril[:, :, :T, :T] == 0, float("-inf"))
-
-        W = F.softmax(W, dim=-1)
-
-        W = self.attn_dropout(W)
-
-        # (B, n_head, T, hs)
-        out = W @ V
+        # use flash attention for better performance
+        out = F.scaled_dot_product_attention(Q, K, V, is_causal=True)
 
         # reassemble all head outputs
         out = out.transpose(1, 2).contiguous().view(B, T, C)
