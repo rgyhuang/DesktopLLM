@@ -7,6 +7,7 @@ the GPT model defined in model.py.
 import torch
 from utils import DataLoader
 from model import GPT, GPTConfig
+import time
 
 if __name__ == "__main__":
     device = "cpu"
@@ -30,7 +31,7 @@ if __name__ == "__main__":
     model = GPT(GPTConfig())
     model.to(device)
 
-    # compilation does not currently work with mps backend
+    # compilation does not currently work with mps backend (missing ops)
     if device == "cuda":
         model = torch.compile(model)
 
@@ -38,54 +39,30 @@ if __name__ == "__main__":
     # print(loss)
     trainLoader = DataLoader(B, T, device=device)
 
-    torch.set_float32_matmul_precision('high')
+    # treat multiplcations using TF32 or bfloat16
+    torch.set_float32_matmul_precision("high")
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
     epochs = 50
     for i in range(epochs):
+        t0 = time.time()
         x, y = next(trainLoader)
         x, y = x.to(device), y.to(device)
         optimizer.zero_grad()
+
         # lower precision for higher perfomance in nvidia ampere architecture
-        # while torch.autocast(device_type=device, dtype=torch.bfloat16):
-        logits, loss = model(x, y)
+        with torch.autocast(device_type=device, dtype=torch.bfloat16):
+            logits, loss = model(x, y)
 
         loss.backward()
         optimizer.step()
-        print(f"Epoch {i}: loss = {loss.item()}")
 
-    # num_return_sequences = 5
-    # max_sequence_length = 30
+        # synchronize for accurate timing
+        if device == "cuda":
+            torch.cuda.synchronize()
+        elif device == "mps":
+            torch.mps.synchronize()
 
-    # prefix token init
-    # enc = tiktoken.get_encoding("gpt2")
-    # tokens = enc.encode("Hello, I am a language model")
-    # tokens = torch.tensor(tokens, dtype=torch.long)
-    # tokens = tokens.unsqueeze(0).repeat(num_return_sequences, 1)
-    # x = tokens.to("mps")
-
-    # start_time = time.time()
-    # # generate using model
-    # while x.shape[1] < max_sequence_length:
-    #     # forward the model to get logits
-    #     with torch.no_grad():
-    #         logits = model(x) # (num_return_sequences, max_sequence_length, vocab_size)
-
-    #         logits = logits[:, -1, :] # (num_return_sequences, vocab_size)
-
-    #         probs = F.softmax(logits, dim=-1) # (num_return_sequences, vocab_size)
-
-    #         topk_probs, topk_indices = torch.topk(probs, 50, dim=-1)
-
-    #         ix = torch.multinomial(topk_probs, num_samples=1) # (num_return_sequences, 1)
-
-    #         xcol = torch.gather(topk_indices, -1, ix) # (num_return_sequences, 1)
-
-    #         x = torch.concat((x, xcol), dim=-1) # (num_return_sequences, max_sequence_length)
-
-    # print(f"{5} phrases generated in {time.time() - start_time:.2f} seconds")
-
-    # for i in range(num_return_sequences):
-    #     gen_tokens = x[i, :max_sequence_length].tolist()
-    #     decoded = enc.decode(gen_tokens)
-    #     print("> ", decoded)
+        print(
+            f"Epoch {i}: loss = {loss.item()}, time = {(time.time() - t0) * 1000:0.2f} ms "
+        )
