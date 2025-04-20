@@ -24,6 +24,7 @@ class MultiHeadAttention(nn.Module):
 
         self.c_attn = nn.Linear(config.n_embd, 3 * config.n_embd)
         self.c_proj = nn.Linear(config.n_embd, config.n_embd)
+        self.c_proj.SCALE_INIT = 1
 
         self.register_buffer(
             "tril",
@@ -85,6 +86,8 @@ class FeedForward(nn.Module):
         # GeLU is smoother than ReLU, can improve performance in transformer (i.e. dead ReLU)
         self.c_fc = nn.Linear(n_embd, 4 * n_embd)
         self.c_proj = nn.Linear(4 * n_embd, n_embd)
+        self.c_proj.SCALE_INIT = 1
+
         self.gelu = nn.GELU()
         self.dropout = nn.Dropout(dropout)
 
@@ -136,10 +139,10 @@ class GPT(nn.Module):
         self.GPTConfig = config
         self.transformer = nn.ModuleDict(
             dict(
-                wte=nn.Embedding(GPTConfig.vocab_size, GPTConfig.n_embd),
-                wpe=nn.Embedding(GPTConfig.block_size, GPTConfig.n_embd),
+                wte=nn.Embedding(self.GPTConfig.vocab_size, self.GPTConfig.n_embd),
+                wpe=nn.Embedding(self.GPTConfig.block_size, self.GPTConfig.n_embd),
                 h=nn.ModuleList(
-                    [Transformer(GPTConfig) for _ in range(GPTConfig.n_layer)]
+                    [Transformer(self.GPTConfig) for _ in range(self.GPTConfig.n_layer)]
                 ),
                 # additional layer added in GPT2
                 ln_f=nn.LayerNorm(self.GPTConfig.n_embd),
@@ -149,18 +152,39 @@ class GPT(nn.Module):
             self.GPTConfig.n_embd, self.GPTConfig.vocab_size, bias=False
         )
 
-    def forward(self, x):
+        # weight sharing
+        self.transformer.wte.weight = self.lm_head.weight
+
+        # initialize weights
+        self.apply(self.__init_weights)
+
+    def __init_weights(self, module):
+        if isinstance(module, nn.Linear):
+            std = 0.02
+            if hasattr(module, "SCALE_INIT") is not None:
+                std *= (2 * self.GPTConfig.n_layer) ** -0.5
+            torch.nn.init.normal_(module.weight, mean=0.0, std=std)
+            if module.bias is not None:
+                torch.nn.init.zeros_(module.bias)
+        elif isinstance(module, nn.Embedding):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+
+    def forward(self, x, y=None):
         # x is the batch of tokens
         B, T = x.shape
-        pos = torch.arange(T, dtype=torch.long, device=x.device)
-        tok_embd = self.transformer.wte(x)
+        pos = torch.arange(0, T, dtype=torch.long, device=x.device)
         pos_embd = self.transformer.wpe(pos)
+        tok_embd = self.transformer.wte(x)
         x = pos_embd + tok_embd
         for block in self.transformer.h:
             x = block(x)
         x = self.transformer.ln_f(x)
-        out = self.lm_head(x)
-        return out
+        logits = self.lm_head(x)
+        loss = None
+        if y is not None:
+            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), y.view(-1))
+
+        return logits, loss
 
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path):

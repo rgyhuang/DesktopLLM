@@ -4,8 +4,7 @@ import torch
 import torch.nn.functional as F
 import time
 
-from model import GPT # GPTConfig
-
+from model import GPT  # GPTConfig
 
 if __name__ == "__main__":
     device = "cpu"
@@ -15,7 +14,7 @@ if __name__ == "__main__":
         device = "mps"
     print(f"Using device: {device}")
 
-    model = GPT.from_pretrained("gpt2")
+    model = GPT.from_pretrained("gpt2-large")
 
     # model = GPT(GPTConfig())
     model.eval()
@@ -27,7 +26,7 @@ if __name__ == "__main__":
     # prefix token init
     enc = tiktoken.get_encoding("gpt2")
     tokens = enc.encode("Hello, I am a language model")
-    tokens = torch.tensor(tokens, dtype=torch.long) 
+    tokens = torch.tensor(tokens, dtype=torch.long)
     tokens = tokens.unsqueeze(0).repeat(num_return_sequences, 1)
     x = tokens.to("mps")
 
@@ -36,19 +35,23 @@ if __name__ == "__main__":
     while x.shape[1] < max_sequence_length:
         # forward the model to get logits
         with torch.no_grad():
-            logits = model(x) # (num_return_sequences, max_sequence_length, vocab_size)
-            
-            logits = logits[:, -1, :] # (num_return_sequences, vocab_size)
-            
-            probs = F.softmax(logits, dim=-1) # (num_return_sequences, vocab_size)
+            logits = model(x)  # (num_return_sequences, max_sequence_length, vocab_size)
+
+            logits = logits[:, -1, :]  # (num_return_sequences, vocab_size)
+
+            probs = F.softmax(logits, dim=-1)  # (num_return_sequences, vocab_size)
 
             topk_probs, topk_indices = torch.topk(probs, 50, dim=-1)
 
-            ix = torch.multinomial(topk_probs, num_samples=1) # (num_return_sequences, 1)
+            ix = torch.multinomial(
+                topk_probs, num_samples=1
+            )  # (num_return_sequences, 1)
 
-            xcol = torch.gather(topk_indices, -1, ix) # (num_return_sequences, 1)
+            xcol = torch.gather(topk_indices, -1, ix)  # (num_return_sequences, 1)
 
-            x = torch.concat((x, xcol), dim=-1) # (num_return_sequences, max_sequence_length)
+            x = torch.concat(
+                (x, xcol), dim=-1
+            )  # (num_return_sequences, max_sequence_length)
 
     print(f"{5} phrases generated in {time.time() - start_time:.2f} seconds")
 
@@ -56,13 +59,3 @@ if __name__ == "__main__":
         gen_tokens = x[i, :max_sequence_length].tolist()
         decoded = enc.decode(gen_tokens)
         print("> ", decoded)
-
-
-
-
-
-
-
-
-
-
