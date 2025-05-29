@@ -23,7 +23,7 @@ if __name__ == "__main__":
     #     text = f.read()
     # data = text[:1000]
     # tokens = enc.encode(data)
-    B, T = 8, 512
+    B, T = 8, 1024
     # buf = torch.Tensor(tokens[:B * T + 1]).to(device).long()
     # x = buf[:-1].view(B, T)
     # y = buf[1:].view(B, T)
@@ -32,8 +32,8 @@ if __name__ == "__main__":
     model.to(device)
 
     # compilation does not currently work with mps backend (missing ops)
-    if device == "cuda":
-        model = torch.compile(model)
+    # if device == "cuda":
+    model = torch.compile(model)
 
     # logits, loss = model(x, y)
     # print(loss)
