@@ -23,17 +23,17 @@ if __name__ == "__main__":
     #     text = f.read()
     # data = text[:1000]
     # tokens = enc.encode(data)
-    B, T = 8, 1024
+    B, T = 16, 1024
     # buf = torch.Tensor(tokens[:B * T + 1]).to(device).long()
     # x = buf[:-1].view(B, T)
     # y = buf[1:].view(B, T)
 
-    model = GPT(GPTConfig())
+    model = GPT(GPTConfig(vocab_size=50304))
     model.to(device)
 
     # compilation does not currently work with mps backend (missing ops)
-    # if device == "cuda":
-    model = torch.compile(model)
+    if device == "cuda":
+        model = torch.compile(model)
 
     # logits, loss = model(x, y)
     # print(loss)
@@ -42,7 +42,7 @@ if __name__ == "__main__":
     # treat multiplcations using TF32 or bfloat16
     torch.set_float32_matmul_precision("high")
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, betas=(0.9, 0.95), eps=1e-8)
     epochs = 50
     for i in range(epochs):
         t0 = time.time()
@@ -55,6 +55,7 @@ if __name__ == "__main__":
             logits, loss = model(x, y)
 
         loss.backward()
+        norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         optimizer.step()
 
         # synchronize for accurate timing
@@ -64,5 +65,5 @@ if __name__ == "__main__":
             torch.mps.synchronize()
 
         print(
-            f"Epoch {i}: loss = {loss.item()}, time = {(time.time() - t0) * 1000:0.2f} ms "
+            f"Epoch {i}: loss = {loss.item()} | norm = {norm:.4f} | time = {(time.time() - t0) * 1000:0.2f} ms"
         )
